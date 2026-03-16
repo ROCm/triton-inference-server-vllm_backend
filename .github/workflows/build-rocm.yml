@@ -1,0 +1,100 @@
+name: Build Triton ROCm + vLLM
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      rocm_version:
+        description: "ROCm version"
+        default: "7.2"
+      triton_branch:
+        description: "Triton server branch"
+        default: "rocm7.2_r25.12"
+      gpu_arch:
+        description: "Target GPU architectures (semicolon-separated)"
+        default: "gfx1201"
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: nudibranches/tritonserver-rocm-vllm
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 360
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghcrunner /opt/hostedtoolcache
+          docker system prune -af
+          df -h
+
+      - name: Checkout vLLM backend
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 1: Clone and build Triton Server for ROCm
+      # build.py creates Docker images via Docker-in-Docker
+      - name: Clone Triton Server repo
+        run: |
+          git clone -b ${{ inputs.triton_branch || 'rocm7.2_r25.12' }} --depth 1 \
+            https://github.com/ROCm/triton-inference-server-server.git /tmp/triton-server
+
+      - name: Build Triton base image (ROCm + deps)
+        working-directory: /tmp/triton-server
+        run: bash scripts/build_ubuntu24.04_rocm_72_base.sh
+
+      - name: Build Triton Server image
+        working-directory: /tmp/triton-server
+        run: |
+          python3 build.py \
+            --no-container-pull \
+            --enable-logging \
+            --enable-stats \
+            --enable-tracing \
+            --enable-rocm \
+            --enable-metrics \
+            --endpoint=grpc \
+            --endpoint=http \
+            --backend=python \
+            --linux-distro=ubuntu
+
+      - name: Verify tritonserver image exists
+        run: docker images tritonserver
+
+      # Step 2: Extend with vLLM + backend
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=rocm${{ inputs.rocm_version || '7.2' }}
+            type=sha,prefix=rocm${{ inputs.rocm_version || '7.2' }}-
+
+      - name: Build final image and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.rocm
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BASE_IMAGE=tritonserver:latest
+            PYTORCH_ROCM_ARCH=${{ inputs.gpu_arch || 'gfx1201' }}

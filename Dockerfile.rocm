@@ -1,0 +1,33 @@
+# Final image: Triton Server (ROCm) + vLLM + vLLM Backend
+#
+# This Dockerfile extends the tritonserver image built by the ROCm build scripts.
+# It is NOT meant to be used standalone — see the GitHub Action workflow which:
+#   1. Builds the tritonserver ROCm base via build.py (Docker-in-Docker)
+#   2. Extends it with this Dockerfile to add vLLM + the backend
+#
+# Build args:
+#   BASE_IMAGE         - tritonserver image from step 1
+#   PYTORCH_ROCM_ARCH  - Target GPU architectures
+
+ARG BASE_IMAGE=tritonserver:latest
+FROM ${BASE_IMAGE}
+
+ARG PYTORCH_ROCM_ARCH="gfx1201"
+ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
+
+# Install vLLM + dependencies
+RUN pip install --no-cache-dir \
+    vllm \
+    huggingface-hub[cli] \
+    pillow \
+    numpy
+
+# Copy vLLM backend into Triton backends directory
+COPY src/ /opt/tritonserver/backends/vllm/
+
+ENV MODEL_REPOSITORY=/models
+
+EXPOSE 8000 8001 8002
+
+ENTRYPOINT ["tritonserver"]
+CMD ["--model-repository=/models"]
