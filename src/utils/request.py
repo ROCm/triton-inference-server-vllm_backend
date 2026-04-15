@@ -33,7 +33,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import triton_python_backend_utils as pb_utils
 from PIL import Image
-from vllm.inputs.data import TokensPrompt
+from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import (
     EmbeddingOutput,
