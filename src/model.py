@@ -225,6 +225,11 @@ class TritonPythonModel:
         # Check for LoRA config and set it up if enabled
         self._setup_lora()
 
+        # Handle deprecated 'disable_log_requests' -> 'enable_log_requests' (vLLM 0.19+)
+        if 'disable_log_requests' in self.vllm_engine_config:
+            val = self.vllm_engine_config.pop('disable_log_requests')
+            self.vllm_engine_config.setdefault('enable_log_requests', not val)
+
         # Create an AsyncEngineArgs from the config from JSON
         self._aync_engine_args = AsyncEngineArgs(**self.vllm_engine_config)
 
@@ -268,8 +273,6 @@ class TritonPythonModel:
             # TODO: Metrics should work with ZMQ enabled.
             async with build_async_engine_client_from_engine_args(
                 engine_args=self._aync_engine_args,
-                disable_frontend_multiprocessing=self._enable_metrics,
-                stat_loggers=self._vllm_metrics,
             ) as engine:
                 # Capture the engine event loop and make it visible to other threads.
                 self._event_loop = asyncio.get_running_loop()
