@@ -224,6 +224,11 @@ class TritonPythonModel:
         # Check for LoRA config and set it up if enabled
         self._setup_lora()
 
+        # Handle deprecated 'disable_log_requests' -> 'enable_log_requests' (vLLM 0.19+)
+        if 'disable_log_requests' in self.vllm_engine_config:
+            val = self.vllm_engine_config.pop('disable_log_requests')
+            self.vllm_engine_config.setdefault('enable_log_requests', not val)
+
         # Create an AsyncEngineArgs from the config from JSON
         self._aync_engine_args = AsyncEngineArgs(**self.vllm_engine_config)
 
